@@ -1,0 +1,6 @@
+numpy
+pillow
+requests
+mss
+rapidocr-onnxruntime
+pystray

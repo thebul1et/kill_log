@@ -1,0 +1,30 @@
+{
+  "monitor": 1,
+  "game_process": "",
+  "region": [
+    0.4,
+    0.43,
+    0.2,
+    0.1
+  ],
+  "trigger_words": [
+    "eliminated",
+    "arrested by"
+  ],
+  "log_arrests": true,
+  "patterns": [
+    "lost\\W+(?:\\S{1,14}[\\]\\)]\\s+)?(?P<name>[^\\s\\[\\]\\(\\)]{2,24})\\s*\\S{0,3}?\\s*[\\[\\(\\{]?\\s*(?P<id>\\d{6,12})\\s*[\\]\\)\\}]?",
+    "confiscated\\W+(?P<name>\\S{2,24})(?:[\\s#(\\[:]+(?:id[\\s:#]*)?(?P<id>\\d{3,10}))?"
+  ],
+  "interval": 0.5,
+  "cooldown": 20,
+  "confirm_reads": 2,
+  "endpoint": "",
+  "api_key": "",
+  "local_page": {
+    "enabled": true,
+    "port": 8765,
+    "open_browser": true
+  },
+  "show_window_on_game_start": true
+}

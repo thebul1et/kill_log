@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>BulletHQ | Kill Log</title>
+<style>
+  :root { --bg:#080e17; --card:#101a28; --line:#1d2b3f; --text:#e6edf6; --muted:#8497ae; --accent:#ff4d5e; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:20px; background:var(--bg); color:var(--text);
+    font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif; }
+  .wrap { max-width:960px; margin:0 auto; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  .sub { color:var(--muted); margin-bottom:16px; }
+  .sub:empty { display:none; }
+  .bar { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px; }
+  input { flex:1; min-width:200px; padding:10px 12px; border-radius:10px; border:1px solid var(--line);
+    background:var(--card); color:var(--text); font:inherit; }
+  button { padding:10px 14px; border-radius:10px; border:1px solid var(--line); background:var(--card);
+    color:var(--text); font:inherit; cursor:pointer; }
+  button:hover { border-color:var(--accent); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px 16px; }
+  h2 { font-size:13px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin:0 0 10px; }
+  .scroll { overflow-x:auto; max-height:520px; overflow-y:auto; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th { text-align:left; color:var(--muted); font-weight:500; padding:6px 8px 6px 0; position:sticky; top:0; background:var(--card); }
+  td { padding:7px 8px 7px 0; border-top:1px solid var(--line); white-space:nowrap; }
+  .id, .t { color:var(--muted); font-size:13px; }
+  .n { color:var(--accent); font-weight:600; }
+  .a { color:#e0b34d; font-weight:600; }
+  .msg { color:var(--muted); padding:8px 0; }
+  .note { color:var(--muted); font-size:12px; margin-top:14px; }
+  [hidden] { display:none !important; }
+  #login { max-width:360px; display:flex; gap:10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="sub" id="sub">Loading…</div>
+  <div class="card" id="login" hidden>
+    <input id="pw" type="password" placeholder="Password" autocomplete="current-password">
+    <button id="go" type="button">View</button>
+  </div>
+  <div id="main" hidden>
+  <div class="bar">
+    <input id="q" type="search" placeholder="Search a player name or ID…">
+    <button id="csv" type="button">Download CSV</button>
+    <button id="out" type="button">Log out</button>
+  </div>
+  <div class="grid">
+    <div class="card"><h2>Players who killed me</h2><div class="scroll"><table>
+      <thead><tr><th>Player</th><th>Kills</th><th>Arrests</th><th>First seen</th><th>Last seen</th></tr></thead>
+      <tbody id="players"></tbody></table></div></div>
+  </div>
+  </div>
+</div>
+<script>
+  // Your Worker address (the part before /api/deaths can be changed if you route it elsewhere)
+  const ENDPOINT = "https://autumn-heart-b3d2.drviper30.workers.dev/api/deaths?limit=1000";
+  const NO_LOGIN = false; // the copy served on your own PC by bot.py switches this to true
+  const REFRESH_MS = 30000;
+  let data = { total: 0, recent: [], players: [] };
+  const $ = (id) => document.getElementById(id);
+  const fmt = (iso) => { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleString([], { month:"short", day:"numeric", hour:"numeric", minute:"2-digit" }); };
+
+  function td(text, cls) { const c = document.createElement("td"); c.textContent = text; if (cls) c.className = cls; return c; }
+  function who(name, id) {
+    const c = document.createElement("td"); c.textContent = name + " ";
+    if (id) { const s = document.createElement("span"); s.className = "id"; s.textContent = "#" + id; c.appendChild(s); }
+    return c;
+  }
+  function fill(tbody, rows, cols) {
+    tbody.replaceChildren();
+    if (!rows.length) { const r = tbody.insertRow(); const c = r.insertCell(); c.colSpan = cols; c.className = "msg"; c.textContent = "Nothing found."; return; }
+    rows.forEach((cells) => { const r = document.createElement("tr"); cells.forEach((c) => r.appendChild(c)); tbody.appendChild(r); });
+  }
+  const match = (q, name, id) => !q || (name || "").toLowerCase().includes(q) || String(id || "").includes(q);
+
+  function render() {
+    const q = $("q").value.trim().toLowerCase().replace(/^#/, "");
+    const players = data.players.filter((p) => match(q, p.killer_name, p.killer_id));
+    fill($("players"), players.map((p) => [who(p.killer_name, p.killer_id), td(p.kills, "n"), td(p.arrests || 0, "a"), td(fmt(p.first_seen), "t"), td(fmt(p.last_seen), "t")]), 5);
+  }
+
+  function getKey() { if (NO_LOGIN) return "local"; try { return localStorage.getItem("kl_key") || ""; } catch (e) { return ""; } }
+  function setKey(k) { try { k ? localStorage.setItem("kl_key", k) : localStorage.removeItem("kl_key"); } catch (e) {} }
+  let timer = null;
+  function showLogin(msg) {
+    clearInterval(timer); timer = null;
+    $("main").hidden = true; $("login").hidden = false;
+    $("sub").textContent = msg || "Enter the password to view the kill log.";
+  }
+  async function load() {
+    const key = getKey();
+    if (!key) return showLogin();
+    try {
+      const res = await fetch(ENDPOINT, { cache: "no-store", headers: { Authorization: "Bearer " + key } });
+      if (res.status === 401) { setKey(""); return showLogin("Wrong password."); }
+      if (!res.ok) throw new Error(res.status);
+      data = await res.json();
+      $("login").hidden = true; $("main").hidden = false;
+      $("sub").textContent = "";
+      render();
+      if (!timer) timer = setInterval(load, REFRESH_MS);
+    } catch (e) { $("sub").textContent = "Couldn’t load the kill log."; }
+  }
+
+  function csvCell(v) { return '"' + String(v ?? "").replace(/"/g, '""') + '"'; }
+  $("csv").addEventListener("click", () => {
+    const rows = [["player", "id", "kills", "arrests", "first_seen", "last_seen"]].concat(data.players.map((p) => [p.killer_name, p.killer_id, p.kills, p.arrests || 0, p.first_seen, p.last_seen]));
+    const blob = new Blob([rows.map((r) => r.map(csvCell).join(",")).join("\n")], { type: "text/csv" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "players-who-killed-me.csv"; a.click();
+  });
+  $("q").addEventListener("input", render);
+  function tryLogin() { setKey($("pw").value.trim()); $("pw").value = ""; load(); }
+  $("go").addEventListener("click", tryLogin);
+  $("pw").addEventListener("keydown", (e) => { if (e.key === "Enter") tryLogin(); });
+  $("out").addEventListener("click", () => { setKey(""); showLogin("Logged out."); });
+  if (NO_LOGIN) $("out").hidden = true;
+  load();
+</script>
+</body>
+</html>
